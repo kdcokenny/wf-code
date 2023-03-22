@@ -582,7 +582,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
     async function handleGenerateButtonClick() {
         if (state.isSseRequested || !canRequest()) {
             const remainingTime = 30 - Math.floor(hasReachedCooldown() / 1000);
-            if (remainingTime > 0) console.log(`Not enough time has passed. Please wait ${remainingTime} seconds before the next request.`);
+            if (remainingTime > 0) alert(`Please wait ${remainingTime} seconds before the next request, or upgrade now to remove all restrictions.`);
             return;
         }
         state.isSseRequested = true;
