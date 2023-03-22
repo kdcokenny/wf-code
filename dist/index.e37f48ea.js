@@ -557,7 +557,459 @@ function hmrAccept(bundle, id) {
 }
 
 },{}],"aenu9":[function(require,module,exports) {
-alert("Hello, world!");
+var _createChatCompletion = require("./create_chat_completion");
+var _userData = require("./user_data");
+var _sortTemplates = require("./sort_templates");
+
+},{"./create_chat_completion":"8rVMB","./user_data":"4g2Hl","./sort_templates":"3WVzn"}],"8rVMB":[function(require,module,exports) {
+var _sse = require("./functions/sse");
+var _get = require("./functions/get");
+document.addEventListener("DOMContentLoaded", ()=>{
+    const elements = {
+        generateButton: document.getElementById("generatebutton"),
+        promptInput: document.getElementById("prompt_input"),
+        streamedOutput: document.getElementById("streamedOutput"),
+        loadingAnimation: document.getElementById("enter-loading-lottie"),
+        outputButtons: document.getElementById("output_buttons")
+    };
+    const state = {
+        isSseRequested: false,
+        outputText: "",
+        lastRequestTime: 0
+    };
+    elements.promptInput.addEventListener("keydown", handlePromptInputKeyDown);
+    elements.generateButton.addEventListener("click", handleGenerateButtonClick);
+    async function handleGenerateButtonClick() {
+        if (state.isSseRequested || !canRequest()) {
+            const remainingTime = 30 - Math.floor(hasReachedCooldown() / 1000);
+            if (remainingTime > 0) console.log(`Not enough time has passed. Please wait ${remainingTime} seconds before the next request.`);
+            return;
+        }
+        state.isSseRequested = true;
+        clearStreamedOutputText();
+        await toggleView(2);
+        toggleGenerateButton(false);
+        toggleLoadingAnimation(true);
+        const statusCode = await triggerLoadUserRequest();
+        if (statusCode === 200) {
+            const { active , template  } = await fetchData();
+            if (active || hasReachedCooldown()) {
+                const body = buildRequestBody(template);
+                const sse = createSseObject(body);
+                sse.addEventListener("message", handleSseMessageEvent);
+                sse.stream();
+                state.lastRequestTime = Date.now();
+            } else handleNoCharactersAvailable();
+        } else console.log("Error: status code is not 200");
+    }
+    async function triggerLoadUserRequest() {
+        await Wized.request.execute("Load user");
+        return await Wized.data.get("r.3.$.statusCode");
+    }
+    function handlePromptInputKeyDown(event) {
+        if (event.key === "Enter" && !event.shiftKey && !state.isSseRequested) {
+            event.preventDefault();
+            elements.generateButton.click();
+        }
+    }
+    function handleSseMessageEvent(event) {
+        const msg = event.data;
+        if (msg === "[DONE]") {
+            setOutputVar();
+            handleSseRequestDone();
+            return;
+        }
+        const data = JSON.parse(msg);
+        const text = (0, _get.get)(data.choices[0].delta, "content", "");
+        state.outputText += text;
+        appendStreamedOutputText(text);
+    }
+    function createSseObject(body) {
+        return new (0, _sse.SSE)("https://scholarly-main-bd50e2e.zuplo.app/v1/post-stream", {
+            headers: {
+                "content-type": "application/json"
+            },
+            payload: JSON.stringify(body),
+            method: "POST"
+        });
+    }
+    async function toggleView(view) {
+        await Wized.data.setVariable("view", view);
+    }
+    function toggleGenerateButton(visible) {
+        elements.generateButton.style.display = visible ? "block" : "none";
+    }
+    function toggleLoadingAnimation(visible) {
+        elements.loadingAnimation.style.display = visible ? "block" : "none";
+        elements.outputButtons.style.display = visible ? "none" : "flex";
+    }
+    async function setOutputVar() {
+        await Wized.data.setVariable("textoutput", state.outputText.trim());
+    }
+    function handleSseRequestDone() {
+        state.isSseRequested = false;
+        toggleGenerateButton(true);
+        toggleLoadingAnimation(false);
+        handleCharacters(elements.streamedOutput.innerHTML.length);
+    }
+    function clearStreamedOutputText() {
+        elements.streamedOutput.innerHTML = "";
+    }
+    function appendStreamedOutputText(text) {
+        const textWithLineBreaks = text.replace(/\n/g, "<br>");
+        const isFirstText = elements.streamedOutput.innerHTML === "";
+        const textToAdd = isFirstText ? text.replace(/^\n/, "") : textWithLineBreaks;
+        elements.streamedOutput.innerHTML += textToAdd;
+    }
+    async function fetchData() {
+        const active = await Wized.data.get("v.activeplan");
+        const template = await Wized.data.get("v.selectedtemplate");
+        return {
+            active,
+            template
+        };
+    }
+    function buildRequestBody(template) {
+        const inputVal = elements.promptInput.value;
+        const contextInput = document.getElementById("context_input");
+        const toneInput = document.getElementById("selector_input_tone");
+        const styleInput = document.getElementById("selector_input_style");
+        let content = template !== 0 ? template.completion.prompt : "[INPUT]";
+        content = content.replace(/\[INPUT\]/g, inputVal);
+        content = addContext(content, contextInput.value);
+        content = addToneAndStyle(content, toneInput.value, styleInput.value);
+        const body = {
+            model: "gpt-3.5-turbo",
+            messages: [
+                {
+                    role: "user",
+                    content
+                }
+            ],
+            stream: true
+        };
+        if (template !== 0) Object.assign(body, {
+            temperature: template.completion.temperature,
+            top_p: template.completion.top_p,
+            n: template.completion.n,
+            presence_penalty: template.completion.presence_penalty,
+            frequency_penalty: template.completion.frequency_penalty
+        });
+        return body;
+    }
+    function addContext(content, context) {
+        if (context !== "") content = `Using this context: ${context}.\n\n${content}`;
+        return content;
+    }
+    function addToneAndStyle(content, tone, style) {
+        if (tone || style) {
+            content += "\n\n";
+            if (tone) content += `Write in this tone: ${tone}.`;
+            if (style) content += `The output should use this writing style: ${style}.`;
+        }
+        return content;
+    }
+    async function handleNoCharactersAvailable() {
+        console.log("Error: r.3.d.active is false or not enough time has passed");
+        appendStreamedOutputText("Error, you have run out of free characters. Please upgrade now for unlimited usage.");
+        await Wized.data.setVariable("showupgrade", true);
+    }
+    async function handleCharacters(count) {
+        await Wized.data.setVariable("charactersgenerated", count);
+        await Wized.request.execute("Character Count");
+    }
+    function canRequest() {
+        const active = state.active;
+        const cooldown = 30000;
+        const currentTime = Date.now();
+        return active || currentTime - state.lastRequestTime >= cooldown;
+    }
+    function hasReachedCooldown() {
+        const cooldown = 30000;
+        const currentTime = Date.now();
+        return currentTime - state.lastRequestTime;
+    }
+});
+
+},{"./functions/sse":"8nOji","./functions/get":"cgar5"}],"8nOji":[function(require,module,exports) {
+var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+parcelHelpers.export(exports, "SSE", ()=>SSE);
+function SSE(url, options) {
+    if (!(this instanceof SSE)) return new SSE(url, options);
+    this.INITIALIZING = -1;
+    this.CONNECTING = 0;
+    this.OPEN = 1;
+    this.CLOSED = 2;
+    this.url = url;
+    options = options || {};
+    this.headers = options.headers || {};
+    this.payload = options.payload !== undefined ? options.payload : "";
+    this.method = options.method || this.payload && "POST" || "GET";
+    this.withCredentials = !!options.withCredentials;
+    this.FIELD_SEPARATOR = ":";
+    this.listeners = {};
+    this.xhr = null;
+    this.readyState = this.INITIALIZING;
+    this.progress = 0;
+    this.chunk = "";
+    this.addEventListener = function(type, listener) {
+        if (this.listeners[type] === undefined) this.listeners[type] = [];
+        if (this.listeners[type].indexOf(listener) === -1) this.listeners[type].push(listener);
+    };
+    this.removeEventListener = function(type, listener) {
+        if (this.listeners[type] === undefined) return;
+        var filtered = [];
+        this.listeners[type].forEach(function(element) {
+            if (element !== listener) filtered.push(element);
+        });
+        if (filtered.length === 0) delete this.listeners[type];
+        else this.listeners[type] = filtered;
+    };
+    this.dispatchEvent = function(e) {
+        if (!e) return true;
+        e.source = this;
+        var onHandler = "on" + e.type;
+        if (this.hasOwnProperty(onHandler)) {
+            this[onHandler].call(this, e);
+            if (e.defaultPrevented) return false;
+        }
+        if (this.listeners[e.type]) return this.listeners[e.type].every(function(callback) {
+            callback(e);
+            return !e.defaultPrevented;
+        });
+        return true;
+    };
+    this._setReadyState = function(state) {
+        var event = new CustomEvent("readystatechange");
+        event.readyState = state;
+        this.readyState = state;
+        this.dispatchEvent(event);
+    };
+    this._onStreamFailure = function(e) {
+        var event = new CustomEvent("error");
+        event.data = e.currentTarget.response;
+        this.dispatchEvent(event);
+        this.close();
+    };
+    this._onStreamAbort = function(e) {
+        this.dispatchEvent(new CustomEvent("abort"));
+        this.close();
+    };
+    this._onStreamProgress = function(e) {
+        if (!this.xhr) return;
+        if (this.xhr.status !== 200) {
+            this._onStreamFailure(e);
+            return;
+        }
+        if (this.readyState == this.CONNECTING) {
+            this.dispatchEvent(new CustomEvent("open"));
+            this._setReadyState(this.OPEN);
+        }
+        var data = this.xhr.responseText.substring(this.progress);
+        this.progress += data.length;
+        data.split(/(\r\n|\r|\n){2}/g).forEach((function(part) {
+            if (part.trim().length === 0) {
+                this.dispatchEvent(this._parseEventChunk(this.chunk.trim()));
+                this.chunk = "";
+            } else this.chunk += part;
+        }).bind(this));
+    };
+    this._onStreamLoaded = function(e) {
+        this._onStreamProgress(e);
+        // Parse the last chunk.
+        this.dispatchEvent(this._parseEventChunk(this.chunk));
+        this.chunk = "";
+    };
+    /**
+     * Parse a received SSE event chunk into a constructed event object.
+     */ this._parseEventChunk = function(chunk) {
+        if (!chunk || chunk.length === 0) return null;
+        var e = {
+            "id": null,
+            "retry": null,
+            "data": "",
+            "event": "message"
+        };
+        chunk.split(/\n|\r\n|\r/).forEach((function(line) {
+            line = line.trimRight();
+            var index = line.indexOf(this.FIELD_SEPARATOR);
+            if (index <= 0) // Line was either empty, or started with a separator and is a comment.
+            // Either way, ignore.
+            return;
+            var field = line.substring(0, index);
+            if (!(field in e)) return;
+            var value = line.substring(index + 1).trimLeft();
+            if (field === "data") e[field] += value;
+            else e[field] = value;
+        }).bind(this));
+        var event = new CustomEvent(e.event);
+        event.data = e.data;
+        event.id = e.id;
+        return event;
+    };
+    this._checkStreamClosed = function() {
+        if (!this.xhr) return;
+        if (this.xhr.readyState === XMLHttpRequest.DONE) this._setReadyState(this.CLOSED);
+    };
+    this.stream = function() {
+        this._setReadyState(this.CONNECTING);
+        this.xhr = new XMLHttpRequest();
+        this.xhr.addEventListener("progress", this._onStreamProgress.bind(this));
+        this.xhr.addEventListener("load", this._onStreamLoaded.bind(this));
+        this.xhr.addEventListener("readystatechange", this._checkStreamClosed.bind(this));
+        this.xhr.addEventListener("error", this._onStreamFailure.bind(this));
+        this.xhr.addEventListener("abort", this._onStreamAbort.bind(this));
+        this.xhr.open(this.method, this.url);
+        for(var header in this.headers)this.xhr.setRequestHeader(header, this.headers[header]);
+        this.xhr.withCredentials = this.withCredentials;
+        this.xhr.send(this.payload);
+    };
+    this.close = function() {
+        if (this.readyState === this.CLOSED) return;
+        this.xhr.abort();
+        this.xhr = null;
+        this._setReadyState(this.CLOSED);
+    };
+}
+exports.SSE = SSE;
+
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"gkKU3":[function(require,module,exports) {
+exports.interopDefault = function(a) {
+    return a && a.__esModule ? a : {
+        default: a
+    };
+};
+exports.defineInteropFlag = function(a) {
+    Object.defineProperty(a, "__esModule", {
+        value: true
+    });
+};
+exports.exportAll = function(source, dest) {
+    Object.keys(source).forEach(function(key) {
+        if (key === "default" || key === "__esModule" || dest.hasOwnProperty(key)) return;
+        Object.defineProperty(dest, key, {
+            enumerable: true,
+            get: function() {
+                return source[key];
+            }
+        });
+    });
+    return dest;
+};
+exports.export = function(dest, destName, get) {
+    Object.defineProperty(dest, destName, {
+        enumerable: true,
+        get: get
+    });
+};
+
+},{}],"cgar5":[function(require,module,exports) {
+var parcelHelpers = require("@parcel/transformer-js/src/esmodule-helpers.js");
+parcelHelpers.defineInteropFlag(exports);
+parcelHelpers.export(exports, "get", ()=>get);
+function get(object, key, default_value) {
+    var result = object[key];
+    return typeof result !== "undefined" ? result : default_value;
+}
+
+},{"@parcel/transformer-js/src/esmodule-helpers.js":"gkKU3"}],"4g2Hl":[function(require,module,exports) {
+// Define a function to wait until isRequesting is false
+async function waitForIsRequesting() {
+    return new Promise((resolve)=>{
+        const checkIsRequesting = async ()=>{
+            if (!await Wized.data.get("r.3.$.isRequesting")) resolve();
+            else setTimeout(checkIsRequesting, 10);
+        };
+        checkIsRequesting();
+    });
+}
+// Define a function to update the display based on user data
+function updateDisplay(loadUser) {
+    const accountButton = document.getElementById("account-button");
+    const signInButton = document.getElementById("generatebutton_signin");
+    const generateButton = document.getElementById("generatebutton");
+    const templateFunctional = document.getElementById("template_functional");
+    const templateSignIn = document.getElementById("template_signin");
+    const dashboardSignIn = document.getElementById("dashboard-sign-in");
+    if (loadUser.statusCode === 200) {
+        accountButton.style.display = "flex";
+        signInButton.style.display = "none";
+        generateButton.style.display = "block";
+        templateFunctional.style.display = "flex";
+        templateSignIn.style.display = "none";
+        dashboardSignIn.style.display = "none";
+    } else {
+        accountButton.style.display = "none";
+        signInButton.style.display = "block";
+        generateButton.style.display = "none";
+        templateFunctional.style.display = "none";
+        templateSignIn.style.display = "flex";
+        dashboardSignIn.style.display = "flex";
+    }
+}
+// Define a function to load the user data and show/hide elements
+async function loadData() {
+    try {
+        await waitForIsRequesting();
+        const loadUser = await Wized.data.get("r.3.$");
+        updateDisplay(loadUser);
+    } catch (error) {
+        console.error(error);
+    }
+}
+document.addEventListener("DOMContentLoaded", ()=>{
+    if (typeof Wized !== "undefined" && typeof Wized.data !== "undefined" && typeof document !== "undefined") loadData();
+    else console.error("Wized or document not available.");
+});
+
+},{}],"3WVzn":[function(require,module,exports) {
+window.onload = async ()=>{
+    let startIndex = 0;
+    const [prev, next, searchInput, selectSubject] = [
+        "prev_button",
+        "next_button",
+        "template_search",
+        "select_subject"
+    ].map((id)=>document.getElementById(id));
+    let totalLength;
+    await Wized.request.execute("Get templates");
+    const data = await Wized.data.get("r.59.d");
+    let filteredData = data || [];
+    const filterTemplates = async (searchQuery = "")=>{
+        filteredData = data?.filter((template)=>{
+            const group = template.group || [];
+            const selectedSubject = selectSubject.value;
+            const shouldShow = !selectedSubject || group.includes(selectedSubject);
+            return shouldShow && template.show && template.header?.toLowerCase().startsWith(searchQuery.toLowerCase());
+        }) || [];
+        totalLength = filteredData.length;
+        document.getElementById("total_templates_text").textContent = totalLength;
+        document.getElementById("template_min_text").textContent = startIndex + 1;
+        document.getElementById("template_max_text").textContent = Math.min(startIndex + 12, totalLength);
+        const filteredTemplates = filteredData.slice(startIndex, startIndex + 12);
+        await Wized.data.setVariable("template", filteredTemplates);
+    };
+    const updateTemplates = async (increment)=>{
+        startIndex += increment;
+        await filterTemplates(searchInput.value);
+    };
+    next.addEventListener("click", async ()=>{
+        if (startIndex + 12 < totalLength) await updateTemplates(12);
+    });
+    prev.addEventListener("click", async ()=>{
+        if (startIndex > 0) await updateTemplates(-12);
+    });
+    searchInput.addEventListener("input", async ()=>{
+        startIndex = 0;
+        await filterTemplates(searchInput.value);
+    });
+    selectSubject.addEventListener("change", async ()=>{
+        startIndex = 0;
+        await filterTemplates(searchInput.value);
+    });
+    await filterTemplates();
+};
 
 },{}]},["d8XZh","aenu9"], "aenu9", "parcelRequire4f15")
 
