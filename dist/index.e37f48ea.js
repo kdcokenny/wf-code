@@ -582,7 +582,11 @@ document.addEventListener("DOMContentLoaded", ()=>{
     async function handleGenerateButtonClick() {
         if (state.isSseRequested || !canRequest()) {
             const remainingTime = 30 - Math.floor(hasReachedCooldown() / 1000);
-            if (remainingTime > 0) alert(`Please wait ${remainingTime} seconds before the next request, or upgrade now to remove all restrictions.`);
+            if (remainingTime > 0) {
+                showRemainingTimeMessage(remainingTime);
+                clearStreamedOutputText();
+                await toggleView(2);
+            }
             return;
         }
         state.isSseRequested = true;
@@ -728,6 +732,22 @@ document.addEventListener("DOMContentLoaded", ()=>{
         const cooldown = 30000;
         const currentTime = Date.now();
         return currentTime - state.lastRequestTime;
+    }
+    function showRemainingTimeMessage(remainingTime) {
+        updateRemainingTimeMessage(remainingTime);
+        const countdownInterval = setInterval(async ()=>{
+            remainingTime--;
+            if (remainingTime <= 0) {
+                clearInterval(countdownInterval);
+                await toggleView(1);
+                clearStreamedOutputText();
+            } else updateRemainingTimeMessage(remainingTime);
+        }, 1000);
+    }
+    function updateRemainingTimeMessage(remainingTime) {
+        const message = `Please wait ${remainingTime} seconds before the next request, or upgrade now to remove all restrictions.`;
+        clearStreamedOutputText();
+        appendStreamedOutputText(message);
     }
 });
 
