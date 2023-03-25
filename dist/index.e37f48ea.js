@@ -560,8 +560,9 @@ function hmrAccept(bundle, id) {
 var _createChatCompletion = require("./create_chat_completion");
 var _userData = require("./user_data");
 var _sortTemplates = require("./sort_templates");
+var _copyClearInputJs = require("./copyClearInput.js");
 
-},{"./create_chat_completion":"8rVMB","./user_data":"4g2Hl","./sort_templates":"3WVzn"}],"8rVMB":[function(require,module,exports) {
+},{"./create_chat_completion":"8rVMB","./user_data":"4g2Hl","./sort_templates":"3WVzn","./copyClearInput.js":"bndF2"}],"8rVMB":[function(require,module,exports) {
 var _sse = require("./functions/sse");
 var _get = require("./functions/get");
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -745,6 +746,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
     }
     async function resetCopyVar() {
         await Wized.data.setVariable("textoutput", "");
+        state.outputText = ""; // Reset the state.outputText variable
     }
 });
 
@@ -1027,6 +1029,26 @@ window.onload = async ()=>{
     });
     await filterTemplates();
 };
+
+},{}],"bndF2":[function(require,module,exports) {
+document.addEventListener("DOMContentLoaded", function() {
+    const newButton = document.getElementById("new_button");
+    const promptInput = document.getElementById("prompt_input");
+    const copyButton = document.getElementById("copy_button");
+    const streamedOutput = document.getElementById("streamedOutput");
+    newButton.addEventListener("click", function() {
+        promptInput.value = "";
+    });
+    copyButton.addEventListener("click", async function() {
+        const textArea = document.createElement("textarea");
+        textArea.value = await Wized.data.get("v.textoutput");
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        textArea.remove();
+        alert("Text copied to clipboard!");
+    });
+});
 
 },{}]},["d8XZh","aenu9"], "aenu9", "parcelRequire4f15")
 

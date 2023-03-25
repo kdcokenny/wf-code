@@ -216,5 +216,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function resetCopyVar() {
         await Wized.data.setVariable("textoutput", "");
+        state.outputText = ""; // Reset the state.outputText variable
     }
 });
