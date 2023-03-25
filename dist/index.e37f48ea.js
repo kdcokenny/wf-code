@@ -580,7 +580,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
     elements.promptInput.addEventListener("keydown", handlePromptInputKeyDown);
     elements.generateButton.addEventListener("click", handleGenerateButtonClick);
     async function handleGenerateButtonClick() {
-        if (state.isSseRequested || !canRequest()) {
+        const { active  } = await fetchData();
+        if (state.isSseRequested || !canRequest(active)) {
             const remainingTime = 30 - Math.floor(hasReachedCooldown() / 1000);
             if (remainingTime > 0) {
                 showRemainingTimeMessage(remainingTime);
@@ -590,7 +591,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
             return;
         }
         state.isSseRequested = true;
-        clearStreamedOutputText();
+        await clearStreamedOutputText();
+        await incrementRequestCount();
         await toggleView(2);
         toggleGenerateButton(false);
         toggleLoadingAnimation(true);
@@ -654,9 +656,9 @@ document.addEventListener("DOMContentLoaded", ()=>{
         state.isSseRequested = false;
         toggleGenerateButton(true);
         toggleLoadingAnimation(false);
-        handleCharacters(elements.streamedOutput.innerHTML.length);
     }
-    function clearStreamedOutputText() {
+    async function clearStreamedOutputText() {
+        await resetCopyVar();
         elements.streamedOutput.innerHTML = "";
     }
     function appendStreamedOutputText(text) {
@@ -713,17 +715,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
         }
         return content;
     }
-    async function handleNoCharactersAvailable() {
-        console.log("Error: r.3.d.active is false or not enough time has passed");
-        appendStreamedOutputText("Error, you have run out of free characters. Please upgrade now for unlimited usage.");
-        await Wized.data.setVariable("showupgrade", true);
-    }
-    async function handleCharacters(count) {
-        await Wized.data.setVariable("charactersgenerated", count);
-        await Wized.request.execute("Character Count");
-    }
-    function canRequest() {
-        const active = state.active;
+    function canRequest(active) {
         const cooldown = 30000;
         const currentTime = Date.now();
         return active || currentTime - state.lastRequestTime >= cooldown;
@@ -746,8 +738,13 @@ document.addEventListener("DOMContentLoaded", ()=>{
     }
     function updateRemainingTimeMessage(remainingTime) {
         const message = `Please wait ${remainingTime} seconds before the next request, or upgrade now to remove all restrictions.`;
-        clearStreamedOutputText();
-        appendStreamedOutputText(message);
+        elements.streamedOutput.innerHTML = message;
+    }
+    async function incrementRequestCount() {
+        await Wized.request.execute("Increment Req");
+    }
+    async function resetCopyVar() {
+        await Wized.data.setVariable("textoutput", "");
     }
 });
 
